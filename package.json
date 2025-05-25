@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
   },
   "keywords": [],
   "author": "",
@@ -13,9 +14,18 @@
     "@solana/spl-token": "^0.4.13",
     "@solana/web3.js": "^1.98.2",
     "body-parser": "^2.2.0",
+    "bs58": "^6.0.0",
     "cors": "^2.8.5",
     "csv-parser": "^3.2.0",
     "dotenv": "^16.5.0",
     "express": "^5.1.0"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/heinthetaung198/airdrop-backend.git"
+  },
+  "bugs": {
+    "url": "https://github.com/heinthetaung198/airdrop-backend/issues"
+  },
+  "homepage": "https://github.com/heinthetaung198/airdrop-backend#readme"
 }
