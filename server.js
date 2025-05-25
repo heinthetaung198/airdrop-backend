@@ -18,16 +18,19 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(bodyParser.json());
 
+// Connect to Solana RPC
 const connection = new Connection(process.env.SOLANA_RPC_URL);
-const fromPubkey = new PublicKey(process.env.AIRDROP_WALLET_PUBLIC_KEY);
-const mint = new PublicKey('5B7gEKg5jSKEhHwAdXn3MkAGGHAfMfDQyamVXBnMVJN5');
 
-// ✅ Whitelist CSV မှ load (with .toLowerCase())
+// Mint info
+const fromPubkey = new PublicKey(process.env.AIRDROP_WALLET_PUBLIC_KEY);
+const mint = new PublicKey(process.env.TOKEN_MINT_ADDRESS); // move mint address to .env for flexibility
+
+// ✅ Load whitelist.csv without altering case
 let whitelist = {};
 fs.createReadStream('whitelist.csv')
   .pipe(csv())
   .on('data', (row) => {
-    const wallet = row.wallet_address?.trim().toLowerCase(); // ✅ lowercase
+    const wallet = row.wallet_address?.trim(); // no .toLowerCase()
     const amount = parseFloat(row.claim_amount);
     if (wallet && !isNaN(amount)) {
       whitelist[wallet] = amount;
@@ -35,8 +38,12 @@ fs.createReadStream('whitelist.csv')
   })
   .on('end', () => {
     console.log('✅ Whitelist loaded:', Object.keys(whitelist).length, 'wallet(s)');
+  })
+  .on('error', (err) => {
+    console.error('❌ Failed to load whitelist.csv:', err);
   });
 
+// ✅ Endpoint to generate token transfer TX
 app.post('/generate-claim-tx', async (req, res) => {
   let wallet = req.body.userAddress;
 
@@ -44,12 +51,14 @@ app.post('/generate-claim-tx', async (req, res) => {
     return res.status(400).json({ error: 'Invalid wallet address format.' });
   }
 
-  wallet = wallet.trim().toLowerCase(); // ✅ normalize
+  wallet = wallet.trim(); // no lowercasing
 
+  // Base58 check (wallet format)
   if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(wallet)) {
     return res.status(400).json({ error: 'Wallet address is not valid base58.' });
   }
 
+  // Check whitelist
   if (!whitelist[wallet]) {
     return res.status(403).json({ error: 'You are not eligible or already claimed.' });
   }
@@ -57,8 +66,9 @@ app.post('/generate-claim-tx', async (req, res) => {
   try {
     const toPubkey = new PublicKey(wallet);
     const amount = whitelist[wallet];
-    const amountInSmallestUnit = amount * 1e9;
+    const amountInSmallestUnit = amount * 1e9; // assuming 9 decimals
 
+    // Find associated token accounts
     const fromTokenAccount = await getAssociatedTokenAddress(mint, fromPubkey);
     const toTokenAccount = await getOrCreateAssociatedTokenAccount(
       connection,
@@ -67,6 +77,7 @@ app.post('/generate-claim-tx', async (req, res) => {
       toPubkey
     );
 
+    // Build transfer instruction
     const ix = createTransferInstruction(
       fromTokenAccount,
       toTokenAccount.address,
@@ -87,9 +98,10 @@ app.post('/generate-claim-tx', async (req, res) => {
       verifySignatures: false,
     }).toString('base64');
 
-    // ✅ Remove from whitelist after successful generation
+    // ✅ Remove from whitelist after generating tx
     delete whitelist[wallet];
 
+    // ✅ Update whitelist.csv file
     let csvData = 'wallet_address,claim_amount\n';
     for (const [addr, amt] of Object.entries(whitelist)) {
       csvData += `${addr},${amt}\n`;
@@ -98,11 +110,12 @@ app.post('/generate-claim-tx', async (req, res) => {
 
     res.json({ tx: serialized, amount });
   } catch (err) {
-    console.error('❌ Error in generating claim tx:', err);
+    console.error('❌ Error generating claim transaction:', err);
     res.status(500).json({ error: 'Failed to generate token transfer.' });
   }
 });
 
+// ✅ Start server
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
