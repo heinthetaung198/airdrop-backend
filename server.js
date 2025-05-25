@@ -27,7 +27,7 @@ let whitelist = {};
 fs.createReadStream('whitelist.csv')
   .pipe(csv())
   .on('data', (row) => {
-    const wallet = row.wallet_address?.trim();
+    const wallet = row.wallet_address?.trim().toLowerCase();
     const amount = parseFloat(row.claim_amount);
     if (wallet && !isNaN(amount)) {
       whitelist[wallet] = amount;
@@ -38,15 +38,15 @@ fs.createReadStream('whitelist.csv')
   });
 
 app.post('/generate-claim-tx', async (req, res) => {
-  const { userAddress } = req.body;
+  const wallet = req.body.userAddress?.trim().toLowerCase();
 
-  if (!userAddress || !whitelist[userAddress]) {
+  if (!wallet || !whitelist[wallet]) {
     return res.status(403).json({ error: 'You are not eligible or already claimed.' });
   }
 
   try {
-    const toPubkey = new PublicKey(userAddress);
-    const amount = whitelist[userAddress];
+    const toPubkey = new PublicKey(wallet);
+    const amount = whitelist[wallet];
     const amountInSmallestUnit = amount * 1e9; // Assuming 9 decimals
 
     const fromTokenAccount = await getAssociatedTokenAddress(mint, fromPubkey);
@@ -78,7 +78,7 @@ app.post('/generate-claim-tx', async (req, res) => {
     }).toString('base64');
 
     // ✅ Remove from whitelist
-    delete whitelist[userAddress];
+    delete whitelist[wallet];
 
     let csvData = 'wallet_address,claim_amount\n';
     for (const [addr, amt] of Object.entries(whitelist)) {
