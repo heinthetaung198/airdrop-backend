@@ -22,12 +22,12 @@ const connection = new Connection(process.env.SOLANA_RPC_URL);
 const fromPubkey = new PublicKey(process.env.AIRDROP_WALLET_PUBLIC_KEY);
 const mint = new PublicKey('5B7gEKg5jSKEhHwAdXn3MkAGGHAfMfDQyamVXBnMVJN5');
 
-// ✅ Whitelist CSV မှ load (WITHOUT .toLowerCase())
+// ✅ Whitelist CSV မှ load (with .toLowerCase())
 let whitelist = {};
 fs.createReadStream('whitelist.csv')
   .pipe(csv())
   .on('data', (row) => {
-    const wallet = row.wallet_address?.trim(); // ✅ no .toLowerCase()
+    const wallet = row.wallet_address?.trim().toLowerCase(); // ✅ lowercase
     const amount = parseFloat(row.claim_amount);
     if (wallet && !isNaN(amount)) {
       whitelist[wallet] = amount;
@@ -44,7 +44,7 @@ app.post('/generate-claim-tx', async (req, res) => {
     return res.status(400).json({ error: 'Invalid wallet address format.' });
   }
 
-  wallet = wallet.trim(); // ✅ do not lowercase!
+  wallet = wallet.trim().toLowerCase(); // ✅ normalize
 
   if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(wallet)) {
     return res.status(400).json({ error: 'Wallet address is not valid base58.' });
@@ -87,6 +87,7 @@ app.post('/generate-claim-tx', async (req, res) => {
       verifySignatures: false,
     }).toString('base64');
 
+    // ✅ Remove from whitelist after successful generation
     delete whitelist[wallet];
 
     let csvData = 'wallet_address,claim_amount\n';
