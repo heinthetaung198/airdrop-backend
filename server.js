@@ -22,12 +22,12 @@ const connection = new Connection(process.env.SOLANA_RPC_URL);
 const fromPubkey = new PublicKey(process.env.AIRDROP_WALLET_PUBLIC_KEY);
 const mint = new PublicKey('5B7gEKg5jSKEhHwAdXn3MkAGGHAfMfDQyamVXBnMVJN5');
 
-// ✅ Load whitelist from CSV (lowercase & trimmed)
+// ✅ Whitelist CSV မှ load (WITHOUT .toLowerCase())
 let whitelist = {};
 fs.createReadStream('whitelist.csv')
   .pipe(csv())
   .on('data', (row) => {
-    const wallet = row.wallet_address?.trim().toLowerCase();
+    const wallet = row.wallet_address?.trim(); // ✅ no .toLowerCase()
     const amount = parseFloat(row.claim_amount);
     if (wallet && !isNaN(amount)) {
       whitelist[wallet] = amount;
@@ -37,18 +37,15 @@ fs.createReadStream('whitelist.csv')
     console.log('✅ Whitelist loaded:', Object.keys(whitelist).length, 'wallet(s)');
   });
 
-// ✅ Claim Endpoint
 app.post('/generate-claim-tx', async (req, res) => {
   let wallet = req.body.userAddress;
 
-  // Basic validation
   if (!wallet || typeof wallet !== 'string') {
     return res.status(400).json({ error: 'Invalid wallet address format.' });
   }
 
-  wallet = wallet.trim().toLowerCase();
+  wallet = wallet.trim(); // ✅ do not lowercase!
 
-  // Base58 address format check (length: 32-44, only base58 chars)
   if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(wallet)) {
     return res.status(400).json({ error: 'Wallet address is not valid base58.' });
   }
@@ -60,18 +57,16 @@ app.post('/generate-claim-tx', async (req, res) => {
   try {
     const toPubkey = new PublicKey(wallet);
     const amount = whitelist[wallet];
-    const amountInSmallestUnit = amount * 1e9; // Assuming 9 decimals
+    const amountInSmallestUnit = amount * 1e9;
 
-    // Token accounts
     const fromTokenAccount = await getAssociatedTokenAddress(mint, fromPubkey);
     const toTokenAccount = await getOrCreateAssociatedTokenAccount(
       connection,
-      fromPubkey, // payer
+      fromPubkey,
       mint,
       toPubkey
     );
 
-    // Transfer instruction
     const ix = createTransferInstruction(
       fromTokenAccount,
       toTokenAccount.address,
@@ -87,13 +82,11 @@ app.post('/generate-claim-tx', async (req, res) => {
       recentBlockhash: blockhash,
     }).add(ix);
 
-    // Serialize transaction
     const serialized = tx.serialize({
       requireAllSignatures: false,
       verifySignatures: false,
     }).toString('base64');
 
-    // ✅ Remove from whitelist after successful tx generation
     delete whitelist[wallet];
 
     let csvData = 'wallet_address,claim_amount\n';
@@ -109,7 +102,6 @@ app.post('/generate-claim-tx', async (req, res) => {
   }
 });
 
-// ✅ Server Ready
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
