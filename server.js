@@ -4,6 +4,7 @@ const cors = require('cors');
 const { Connection, PublicKey, Transaction } = require('@solana/web3.js');
 const {
   getAssociatedTokenAddress,
+  getOrCreateAssociatedTokenAccount,
   createTransferInstruction,
   TOKEN_PROGRAM_ID,
 } = require('@solana/spl-token');
@@ -21,7 +22,6 @@ const fromPubkey = new PublicKey(process.env.AIRDROP_WALLET_PUBLIC_KEY);
 const mint = new PublicKey(process.env.TOKEN_MINT_ADDRESS);
 
 let whitelist = {};
-
 fs.createReadStream('whitelist.csv')
   .pipe(csv())
   .on('data', (row) => {
@@ -36,60 +36,58 @@ fs.createReadStream('whitelist.csv')
   });
 
 app.post('/generate-claim-tx', async (req, res) => {
-  const wallet = req.body.userAddress?.trim();
-  if (!wallet || !whitelist[wallet]) {
-    return res.status(403).json({ error: 'You are not eligible or already claimed.' });
-  }
-
   try {
+    let wallet = req.body.userAddress;
+
+    if (!wallet || typeof wallet !== 'string') {
+      return res.status(400).json({ error: 'Invalid wallet address format.' });
+    }
+
+    wallet = wallet.trim();
+
+    if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(wallet)) {
+      return res.status(400).json({ error: 'Wallet address is not valid base58.' });
+    }
+
+    if (!whitelist[wallet]) {
+      return res.status(403).json({ error: 'You are not eligible or already claimed.' });
+    }
+
     const toPubkey = new PublicKey(wallet);
     const amount = whitelist[wallet];
     const amountInSmallestUnit = amount * 1e9;
 
     const fromTokenAccount = await getAssociatedTokenAddress(mint, fromPubkey);
-    const toTokenAccount = await getAssociatedTokenAddress(mint, toPubkey);
+    const toTokenAccount = await getOrCreateAssociatedTokenAccount(
+      connection,
+      fromPubkey,
+      mint,
+      toPubkey
+    );
 
     const ix = createTransferInstruction(
       fromTokenAccount,
-      toTokenAccount,
+      toTokenAccount.address,
       fromPubkey,
       amountInSmallestUnit,
       [],
       TOKEN_PROGRAM_ID
     );
 
-    const blockhash = (await connection.getLatestBlockhash()).blockhash;
-    const tx = new Transaction({
-      feePayer: toPubkey,
-      recentBlockhash: blockhash,
-    }).add(ix);
+    const { blockhash } = await connection.getLatestBlockhash();
+    const tx = new Transaction({ feePayer: toPubkey, recentBlockhash: blockhash }).add(ix);
 
     const serialized = tx.serialize({
       requireAllSignatures: false,
       verifySignatures: false,
     }).toString('base64');
 
+    // Do NOT remove from whitelist here; only after successful tx
     res.json({ tx: serialized, amount });
   } catch (err) {
-    console.error('❌ Error:', err);
-    res.status(500).json({ error: 'Failed to generate transaction' });
+    console.error('❌ Server error:', err);
+    res.status(500).json({ error: 'Internal server error. Please try again later.' });
   }
-});
-
-app.post('/confirm-claim', (req, res) => {
-  const wallet = req.body.userAddress?.trim();
-  if (!wallet || !whitelist[wallet]) {
-    return res.status(400).json({ error: 'Invalid or already claimed.' });
-  }
-
-  delete whitelist[wallet];
-  let csvData = 'wallet_address,claim_amount\n';
-  for (const [addr, amt] of Object.entries(whitelist)) {
-    csvData += `${addr},${amt}\n`;
-  }
-  fs.writeFileSync('whitelist.csv', csvData);
-
-  res.json({ success: true });
 });
 
 app.listen(PORT, () => {
